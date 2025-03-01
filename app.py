@@ -204,45 +204,48 @@ def chatbot_page():
                 "role": "assistant", 
                 "content": content_response
             }
-            with open("state_management/state.txt", "r", encoding="utf-8") as file:
-                matches = ast.literal_eval(file.read())
-                img_data = None
-                img_caption = ""
-                if matches:
-                    top_match = matches[0]["metadata"]
-                    with st.spinner("Fetching Reference..."):
+            response = requests.get(f"{API_BASE_URL}/get-state")
+            if response and response.status_code == 200:
+                matches = ast.literal_eval(response.json()["state"])
+            else:
+                matches = []
+            img_data = None
+            img_caption = ""
+            if matches:
+                top_match = matches[0]["metadata"]
+                with st.spinner("Fetching Reference..."):
 
-                        if top_match["file_type"] == "pdf":
-                            page_number = int(top_match["page_num"])
-                            file_name = top_match["file_name"]
-                            response = requests.post(f"{API_BASE_URL}/get-pdf-page", json={"file_name": file_name, "page_number": page_number})
+                    if top_match["file_type"] == "pdf":
+                        page_number = int(top_match["page_num"])
+                        file_name = top_match["file_name"]
+                        response = requests.post(f"{API_BASE_URL}/get-pdf-page", json={"file_name": file_name, "page_number": page_number})
 
-                            if response and response.status_code == 200 and response.json():
-                                data = response.json()
-                                st.markdown("## **Reference**")
-                                img_data = base64.b64decode(data["img_page"])
-                                img_caption = f"{file_name}, Page {page_number + 1}"
-                                st.image(img_data, caption=img_caption, use_container_width =True)
-                                
-                                session_container_messages["img_data"]= img_data
-                                session_container_messages["img_caption"]= img_caption
-                                
-                            else:
-                                st.warning("Unable to fetch PDF page for reference")
-
-                        elif top_match["file_type"] == "video":
-                            start_time = int(top_match["start_time"]) if top_match["start_time"] else 0
-                            end_time = int(top_match["end_time"]) if top_match["end_time"] else 0
-                            file_name = top_match["file_name"]
+                        if response and response.status_code == 200 and response.json():
+                            data = response.json()
+                            st.markdown("## **Reference**")
+                            img_data = base64.b64decode(data["img_page"])
+                            img_caption = f"{file_name}, Page {page_number + 1}"
+                            st.image(img_data, caption=img_caption, use_container_width =True)
                             
-                            response = requests.post(f"{API_BASE_URL}/get-video-chunk", json={"file_name": file_name, "start_time": start_time, "end_time": end_time})
+                            session_container_messages["img_data"]= img_data
+                            session_container_messages["img_caption"]= img_caption
+                            
+                        else:
+                            st.warning("Unable to fetch PDF page for reference")
 
-                            if response and response.status_code == 200 and response.json():
-                                data = response.json()
-                                st.markdown("## **Reference**")
-                                video_data = base64.b64decode(data["subclip"])
-                                st.video(video_data)
-                                session_container_messages["video_data"]= video_data
+                    elif top_match["file_type"] == "video":
+                        start_time = int(top_match["start_time"]) if top_match["start_time"] else 0
+                        end_time = int(top_match["end_time"]) if top_match["end_time"] else 0
+                        file_name = top_match["file_name"]
+                        
+                        response = requests.post(f"{API_BASE_URL}/get-video-chunk", json={"file_name": file_name, "start_time": start_time, "end_time": end_time})
+
+                        if response and response.status_code == 200 and response.json():
+                            data = response.json()
+                            st.markdown("## **Reference**")
+                            video_data = base64.b64decode(data["subclip"])
+                            st.video(video_data)
+                            session_container_messages["video_data"]= video_data
 
             st.session_state.session_state.messages.append(
                 session_container_messages
