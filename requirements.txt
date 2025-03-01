@@ -1,0 +1,6 @@
+pandas
+streamlit 
+requests
+passlib
+streamlit-option-menu
+python-dotenv
