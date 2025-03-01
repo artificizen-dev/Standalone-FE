@@ -8,7 +8,7 @@ from pathlib import Path
 load_dotenv()
 root_dir = Path.cwd()
 
-API_BASE_URL = os.getenv("API_BASE_URL")
+API_BASE_URL = "https://z6zxn9xjbg.us-east-1.awsapprunner.com/api"
 
 class SessionState:
     def __init__(self):
@@ -204,16 +204,18 @@ def chatbot_page():
                 "role": "assistant", 
                 "content": content_response
             }
-            response = requests.get(f"{API_BASE_URL}/get-state")
-            if response and response.status_code == 200:
-                matches = ast.literal_eval(response.json()["state"])
-            else:
-                matches = []
-            img_data = None
-            img_caption = ""
-            if matches:
-                top_match = matches[0]["metadata"]
-                with st.spinner("Fetching Reference..."):
+            with st.spinner("Fetching Reference..."):
+                response = requests.get(f"{API_BASE_URL}/get-state")
+                if response and response.status_code == 200:
+                    matches = ast.literal_eval(response.json()["state"])
+                else:
+                    matches = []
+                img_data = None
+                img_caption = ""
+                print("matches: ", matches)
+                if matches:
+                    print("Yes Matches present")
+                    top_match = matches[0]["metadata"]
 
                     if top_match["file_type"] == "pdf":
                         page_number = int(top_match["page_num"])
@@ -246,7 +248,8 @@ def chatbot_page():
                             video_data = base64.b64decode(data["subclip"])
                             st.video(video_data)
                             session_container_messages["video_data"]= video_data
-
+                else:
+                    st.warning("No Reference found")
             st.session_state.session_state.messages.append(
                 session_container_messages
             )
