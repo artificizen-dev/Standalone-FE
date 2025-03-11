@@ -1,5 +1,6 @@
-import requests, os, time, ast, base64
+import requests, os, time, ast, base64, uuid
 import streamlit as st
+from streamlit_pdf_viewer import pdf_viewer
 import pandas as pd
 from streamlit_option_menu import option_menu
 from dotenv import load_dotenv
@@ -8,7 +9,8 @@ from pathlib import Path
 load_dotenv()
 root_dir = Path.cwd()
 
-API_BASE_URL = "https://z6zxn9xjbg.us-east-1.awsapprunner.com/api"
+API_BASE_URL = os.getenv("API_BASE_URL")
+USER_ID = uuid.uuid4()
 
 class SessionState:
     def __init__(self):
@@ -16,6 +18,7 @@ class SessionState:
         self.role = None
         self.username = None
         self.messages = []
+        self.user_id = None
 def init_session_state():
     if 'session_state' not in st.session_state:
         st.session_state.session_state = SessionState()
@@ -39,6 +42,7 @@ def login_page():
                 st.session_state.session_state.logged_in = True
                 st.session_state.session_state.role = data.get("role", "user")
                 st.session_state.session_state.username = username
+                st.session_state.session_state.user_id = f"{data.get('user_id', USER_ID)}"
                 time.sleep(1)
                 st.rerun()
             else:
@@ -76,6 +80,7 @@ def profile_page():
     st.divider()
     st.markdown(f"**User:** {st.session_state.session_state.username}")
     st.markdown(f"**Role:** {st.session_state.session_state.role}")
+    st.markdown(f"**User ID:** {st.session_state.session_state.user_id}")
     st.divider()
     ## Change Password
     old_password = st.text_input("Old Password", type='password')
@@ -98,31 +103,33 @@ def profile_page():
                     st.error(data["message"])
 def upload_documents_page():
     st.title("Upload Documents")
-    uploaded_file = st.file_uploader("Upload a file", type=["pdf", "mp4"])
+    uploaded_files = st.file_uploader("Upload a file", type=["pdf", "mp4"], accept_multiple_files=True)
 
-    if uploaded_file:
-        st.write(f"Uploaded file type: {uploaded_file.type}")
+    if uploaded_files:
+          
         if st.button("Upload"):
-            with st.spinner("Uploading..."):
-                files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
-                response = requests.post(
-                    f"{API_BASE_URL}/upload-document",
-                    files=files
-                )
-                data = response.json()
-                print("data: ", data, type(data))
-                if data["status_code"] == 200:
-                    st.success(data["message"])
-                elif data["status_code"] == 400:
-                    if "already exists" in data.get("message", ""):
-                        st.warning(data["message"], icon="⚠️")
-                        st.info("💡 Suggestion: Try adding a version number or date to make the filename unique. Example: 'document_v2' or 'document_2024'")
+            for file in uploaded_files:
+                with st.spinner(f"Uploading {file.name}..."):
+                    files = {"file": (file.name, file, file.type)}
+                    response = requests.post(
+                        f"{API_BASE_URL}/upload-document",
+                        files=files
+                    )
+                    data = response.json()
+                    print("data: ", data, type(data))
+                    if data["status_code"] == 200:
+                        st.success(f"{file.name} uploaded successfully!")
+                    elif data["status_code"] == 400:
+                        if "already exists" in data.get("message", ""):
+                            st.warning(data["message"], icon="⚠️")
+                            st.info("💡 Suggestion: Try adding a version number or date to make the filename unique. Example: 'document_v2' or 'document_1234'")
+                        else:
+                            st.error(data.get("message", "Error during upload"))
                     else:
                         st.error(data.get("message", "Error during upload"))
-                else:
-                    st.error(data.get("message", "Error during upload"))
+            st.success("All files uploaded successfully!")
     else:
-        if not uploaded_file:
+        if not uploaded_files:
             st.warning("Please upload a file.")
 
 def uploaded_documents_page():
@@ -174,10 +181,9 @@ def chatbot_page():
     for message in st.session_state.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            if "img_data" in message:  # Display saved image if available
-                st.image(message["img_data"], caption=message.get("img_caption", ""), use_container_width=True)
-            if "video_data" in message:
-                st.video(message["video_data"])
+            if "sources" in message: 
+                st.markdown("## **Sources**")
+                st.markdown(message["sources"], unsafe_allow_html=True)
     if prompt := st.chat_input("Ask me anything"):
         st.session_state.session_state.messages.append({"role": "user", "content": prompt})
         
@@ -188,7 +194,7 @@ def chatbot_page():
             stream_container = st.empty()
             
             with st.spinner("Thinking..."):
-                response = requests.post(f"{API_BASE_URL}/query", json={"query": prompt}, stream=True)
+                response = requests.post(f"{API_BASE_URL}/query", json={"query": prompt, "user_id": f"{st.session_state.session_state.user_id}"}, stream=True)
                 content_response = ""
                 # Display translation result
                 if response.status_code == 200:
@@ -204,52 +210,71 @@ def chatbot_page():
                 "role": "assistant", 
                 "content": content_response
             }
-            with st.spinner("Fetching Reference..."):
-                response = requests.get(f"{API_BASE_URL}/get-state")
-                if response and response.status_code == 200:
-                    matches = ast.literal_eval(response.json()["state"])
-                else:
-                    matches = []
-                img_data = None
-                img_caption = ""
-                print("matches: ", matches)
-                if matches:
-                    print("Yes Matches present")
-                    top_match = matches[0]["metadata"]
+            ### Checking the action of the user query
+            response = requests.post(f"{API_BASE_URL}/logs/recent", json={"user_id": f"{st.session_state.session_state.user_id}"})
+            if response and response.status_code == 200:
+                action = response.json()["action"]
+                # st.success(f"Action: {action}")
+                if action != "DEFAULT":
+                    response = requests.get(f"{API_BASE_URL}/get-state")
+                    if response and response.status_code == 200:
+                        matches = ast.literal_eval(response.json()["state"])
+                    else:
+                        matches = []
+                    
+                    if matches:
+                        top_match = matches[0]["metadata"]
+                        with st.spinner("Fetching Reference..."):
 
-                    if top_match["file_type"] == "pdf":
-                        page_number = int(top_match["page_num"])
-                        file_name = top_match["file_name"]
-                        response = requests.post(f"{API_BASE_URL}/get-pdf-page", json={"file_name": file_name, "page_number": page_number})
+                            if top_match["file_type"] == "pdf":
+                                page_number = int(top_match["page_num"])
+                                file_name = top_match["file_name"]
+                                source_url = top_match["source_url"]
+                                st.markdown(f"## **Sources**")
 
-                        if response and response.status_code == 200 and response.json():
-                            data = response.json()
-                            st.markdown("## **Reference**")
-                            img_data = base64.b64decode(data["img_page"])
-                            img_caption = f"{file_name}, Page {page_number + 1}"
-                            st.image(img_data, caption=img_caption, use_container_width =True)
-                            
-                            session_container_messages["img_data"]= img_data
-                            session_container_messages["img_caption"]= img_caption
-                            
-                        else:
-                            st.warning("Unable to fetch PDF page for reference")
+                                st.markdown("""
+                                <style>
+                                .abbreviated-link {
+                                    white-space: nowrap;
+                                    overflow: hidden;
+                                    text-overflow: ellipsis;
+                                    max-width: 300px;
+                                    display: inline-block;
+                                }
+                                </style>
+                                """, unsafe_allow_html=True)
 
-                    elif top_match["file_type"] == "video":
-                        start_time = int(top_match["start_time"]) if top_match["start_time"] else 0
-                        end_time = int(top_match["end_time"]) if top_match["end_time"] else 0
-                        file_name = top_match["file_name"]
-                        
-                        response = requests.post(f"{API_BASE_URL}/get-video-chunk", json={"file_name": file_name, "start_time": start_time, "end_time": end_time})
+                                url = f"{source_url}?#page={page_number}"
+                                
+                                sources = f'<a href="{url}" class="abbreviated-link" title="{url}"> Source Link</a>'
+                                st.markdown(sources, unsafe_allow_html=True)   
+                                session_container_messages["sources"] = sources
 
-                        if response and response.status_code == 200 and response.json():
-                            data = response.json()
-                            st.markdown("## **Reference**")
-                            video_data = base64.b64decode(data["subclip"])
-                            st.video(video_data)
-                            session_container_messages["video_data"]= video_data
-                else:
-                    st.warning("No Reference found")
+                            elif top_match["file_type"] == "video":
+                                start_time = int(top_match["start_time"]) if top_match["start_time"] else 0
+                                end_time = int(top_match["end_time"]) if top_match["end_time"] else 0
+                                file_name = top_match["file_name"]
+                                source_url = top_match["source_url"]
+                                st.markdown(f"## **Sources**")
+                                st.markdown("""
+                                <style>
+                                .abbreviated-link {
+                                    white-space: nowrap;
+                                    overflow: hidden;
+                                    text-overflow: ellipsis;
+                                    max-width: 300px;
+                                    display: inline-block;
+                                }
+                                </style>
+                                """, unsafe_allow_html=True)
+
+                                url = f"{source_url}#t={start_time}"
+                                sources = f'<a href="{url}" class="abbreviated-link" title="{url}"> Source Link</a>'
+                                st.markdown(sources, unsafe_allow_html=True)
+                                session_container_messages["sources"] = sources
+            else:
+                st.error("Error logging action")
+
             st.session_state.session_state.messages.append(
                 session_container_messages
             )
@@ -258,11 +283,11 @@ def main():
     with st.sidebar:
         if st.session_state.session_state.logged_in and st.session_state.session_state.role == "admin":
             ## Add a logo
-            st.image("src/assets/Logo.png", width=150)
+            st.image("src/assets/Logo.png", width=200)
             st.divider()
             selected_page = option_menu("Main Menu", ["Profile", "Upload Documents", "Uploaded Documents", "Chatbot", "Logout"], 
                                     icons=["person-circle", "cloud-upload", "file-earmark-text", "chat-dots", "box-arrow-right"], 
-                                    menu_icon="cast", default_index=0)
+                                    menu_icon="cast", default_index=3)
             
         elif st.session_state.session_state.logged_in and st.session_state.session_state.role != "admin":
             ## Add a logo
@@ -270,14 +295,17 @@ def main():
             st.divider()
             selected_page = option_menu("Main Menu", ["Profile", "Chatbot", "Logout"], 
                                     icons=["person-circle", "chat-dots", "box-arrow-right"], 
-                                    menu_icon="cast", default_index=0)
+                                    menu_icon="cast", default_index=1)
         else:
             ## Add a logo
             st.image("src/assets/Logo.png", width=300)
             st.divider()
-            selected_page = option_menu("Main Menu", ["Login", "Signup"], 
-                                    icons=["box-arrow-in-right", "person-plus"], 
+            selected_page = option_menu("Main Menu", ["Login"], 
+                                    icons=["box-arrow-in-right"], 
                                     menu_icon="cast", default_index=0)
+            # selected_page = option_menu("Main Menu", ["Login", "Signup"], 
+            #                         icons=["box-arrow-in-right", "person-plus"], 
+            #                         menu_icon="cast", default_index=0)
     if selected_page == "Login":
         login_page()
     elif selected_page == "Signup":
