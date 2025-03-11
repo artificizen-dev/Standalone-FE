@@ -1,6 +1,5 @@
 import requests, os, time, ast, base64, uuid
 import streamlit as st
-from streamlit_pdf_viewer import pdf_viewer
 import pandas as pd
 from streamlit_option_menu import option_menu
 from dotenv import load_dotenv
