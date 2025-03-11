@@ -8,7 +8,7 @@ from pathlib import Path
 load_dotenv()
 root_dir = Path.cwd()
 
-API_BASE_URL = os.getenv("API_BASE_URL")
+API_BASE_URL = "https://z6zxn9xjbg.us-east-1.awsapprunner.com/api"
 USER_ID = uuid.uuid4()
 
 class SessionState:
