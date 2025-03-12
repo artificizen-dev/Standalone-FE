@@ -294,7 +294,7 @@ def main():
             st.divider()
             selected_page = option_menu("Main Menu", ["Profile", "Chatbot", "Logout"], 
                                     icons=["person-circle", "chat-dots", "box-arrow-right"], 
-                                    menu_icon="cast", default_index=1)
+                                    menu_icon="cast", default_index=0)
         else:
             ## Add a logo
             st.image("src/assets/Logo.png", width=300)
