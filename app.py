@@ -47,17 +47,17 @@ def login_page():
             else:
                 st.error(data["message"])
 def signup_page():
-    st.title("Create New Account")
+    st.title("Register New User")
     st.divider()
     username = st.text_input("Username")
     password = st.text_input("Password", type='password')
     confirm_password = st.text_input("Confirm Password", type='password')
-    if st.button("SignUp"):
+    if st.button("Register User"):
         if password != confirm_password:
             st.error("Passwords do not match")
             time.sleep(2)
             st.rerun()
-        with st.spinner("Creating Account..."):
+        with st.spinner("Registering User..."):
             response = requests.post(
                 f"{API_BASE_URL}/signup",
                 json={"username": username, "password": password}
@@ -65,7 +65,7 @@ def signup_page():
             data = response.json()
             
             if data["status_code"] == 200:
-                st.success(data["message"])
+                st.success("User registered successfully!")
             else:
                 st.error(data["message"])
 def logout_page():
@@ -284,9 +284,9 @@ def main():
             ## Add a logo
             st.image("src/assets/Logo.png", width=200)
             st.divider()
-            selected_page = option_menu("Main Menu", ["Profile", "Upload Documents", "Uploaded Documents", "Chatbot", "Logout"], 
-                                    icons=["person-circle", "cloud-upload", "file-earmark-text", "chat-dots", "box-arrow-right"], 
-                                    menu_icon="cast", default_index=3)
+            selected_page = option_menu("Main Menu", ["Profile", "Add User", "Upload Documents", "Uploaded Documents", "Chatbot", "Logout"], 
+                                    icons=["person-circle", "person-plus", "cloud-upload", "file-earmark-text", "chat-dots", "box-arrow-right"], 
+                                    menu_icon="cast", default_index=4)
             
         elif st.session_state.session_state.logged_in and st.session_state.session_state.role != "admin":
             ## Add a logo
@@ -311,6 +311,8 @@ def main():
         signup_page()
     elif selected_page == "Profile":
         profile_page()
+    elif selected_page == "Add User":
+        signup_page()
     elif selected_page == "Upload Documents":
         upload_documents_page()
     elif selected_page == "Uploaded Documents":
