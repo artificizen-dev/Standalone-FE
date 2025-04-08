@@ -214,7 +214,7 @@ def chatbot_page():
                 "content": content_response
             }
             ### Checking the action of the user query
-            response = requests.post(f"{API_BASE_URL}/logs/recent", json={"user_id": f"{st.session_state.session_state.user_id}"})
+            response = requests.post(f"{API_BASE_URL}/logs/recent", json={"id": f"{st.session_state.session_state.user_id}"})
             if response and response.status_code == 200:
                 action = response.json()["action"]
                 # st.success(f"Action: {action}")
