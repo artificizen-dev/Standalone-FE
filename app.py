@@ -18,6 +18,10 @@ class SessionState:
         self.username = None
         self.messages = []
         self.user_id = None
+        self.show_form = False
+        self.list_users = []
+        self.edit_user = {}
+        self.show_edit_form = False
 def init_session_state():
     if 'session_state' not in st.session_state:
         st.session_state.session_state = SessionState()
@@ -277,6 +281,169 @@ def chatbot_page():
             st.session_state.session_state.messages.append(
                 session_container_messages
             )
+
+def toggle_form():
+        st.session_state.session_state.show_form = not st.session_state.session_state.show_form
+def fetch_users():
+    response = requests.get(f"{API_BASE_URL}/get-users")
+    if response.status_code == 200:
+        st.session_state.session_state.list_users = response.json().get("users", [])
+    else:
+        st.session_state.session_state.list_users = []
+
+def show_edit_form(user_data):
+    st.session_state.session_state.show_edit_form = True
+    st.session_state.session_state.edit_user = user_data
+
+def manage_users():
+    st.title("Manage Users")
+    st.divider()
+    col1, col2 = st.columns([8, 1])
+    with col1:
+        st.subheader("Create Users")
+    with col2:
+        if st.button("[+]"):
+            toggle_form()
+
+    if st.session_state.session_state.show_form:
+        with st.form("user_form"):
+            username = st.text_input("Username", key="username")
+            email = st.text_input("Email", key="email")
+            password = st.text_input("Password", type="password", key="password")
+            role = st.selectbox("Role", ["user", "admin"], key="role")
+            
+            submit_button = st.form_submit_button("Add User")
+            
+            if submit_button:
+                with st.spinner("Adding User..."):
+                    if "@" not in email or "." not in email:
+                        st.error("Please enter a valid email address")
+                    else:
+                        if username and email and password and role:
+                            response = requests.post(f"{API_BASE_URL}/create-user", json={
+                                "username": username,
+                                "email": email,
+                                "password": password,
+                                "role": role
+                            })
+                            print(response.json())
+                            message = response.json()["message"]
+                            if response.json()["status_code"] == 200:
+                                fetch_users()
+                                st.success(message)
+                                time.sleep(3)
+                                toggle_form()
+                            else:
+                                st.error(message)
+                        else:
+                            st.error("All fields are mandatory!")
+    st.divider()
+    st.subheader("Users")
+
+    # users = fetch_users()
+    if "list_users" not in st.session_state:
+        fetch_users()
+
+    if st.session_state.session_state.list_users:
+        df = pd.DataFrame(st.session_state.session_state.list_users)
+        df = df[["id", "username", "email", "role", "last_modified"]]
+        df.columns = ["User ID", "Name", "Email", "Role", "Last Modified"]
+        
+        # Display table headers
+        header_cols = st.columns([2, 3, 2, 2, 2, 2, 4])
+        header_cols[0].write("**Name**")
+        header_cols[1].write("**Email**")
+        header_cols[2].write("**Role**")
+        header_cols[3].write("**Last Modified**")
+        header_cols[4].write("**Edit**")
+        header_cols[5].write("**Delete User**")
+        header_cols[6].write("**Reset Password**")
+        
+        for index, row in df.iterrows():
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 3, 2, 2, 2, 2, 4])
+            col1.write(row["Name"])
+            col2.write(row["Email"] if row["Email"] else "")
+            col3.write(row["Role"])
+            col4.write(row["Last Modified"])
+            if col5.button("Edit", key=f"edit_{row['User ID']}"):
+                show_edit_form(row.to_dict())
+
+            if col6.button("Delete", key=f"delete_{row['User ID']}"):
+                with st.spinner("Deleting user..."):
+                    time.sleep(1)
+                    payload = {
+                        "id": int(row["User ID"])
+                    }
+                    response = requests.delete(f"{API_BASE_URL}/delete-user", json=payload)
+                    message = response.json().get("message", "Operation completed")
+                    if response.json()["status_code"] == 200:
+                        st.success(message)
+                        fetch_users()
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                        time.sleep(4)
+                        st.rerun()
+            if col7.button("Reset Password", key=f"reset_{row['User ID']}"):
+                with st.spinner("Sending Email..."):
+                    payload = {
+                        "email": row["Email"],
+                        "username": row["Name"]
+                    }
+                    response = requests.post(f"{API_BASE_URL}/reset-password", json=payload)
+                    message = response.json().get("message", "Operation completed")
+                    if response.json()["status_code"] == 200:
+                        st.success(message)
+                        time.sleep(3)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                        time.sleep(2)
+                        st.rerun()
+
+        # Show edit form separately, outside of the row loop
+        if st.session_state.session_state.show_edit_form:
+            edit_user = st.session_state.session_state.edit_user
+
+            st.subheader(f"Edit User - {edit_user['Name']}")
+
+            new_username = st.text_input("Username", value=edit_user["Name"], key="edit_username")
+            new_email = st.text_input("Email", value=str(edit_user["Email"]), key="edit_email")
+            new_role = st.selectbox("Role", ["user", "admin"],
+                                    index=0 if edit_user["Role"] == "user" else 1,
+                                    key="edit_role")
+
+            update_col, cancel_col = st.columns([1, 1])
+            if update_col.button("Update", key="update_user"):
+                with st.spinner("Updating user..."):
+                    payload = {
+                        "id": int(edit_user["User ID"]),
+                        "username": new_username,
+                        "email": new_email,
+                        "role": new_role
+                    }
+                    response = requests.put(f"{API_BASE_URL}/edit-user", json=payload)
+                    message = response.json().get("message", "Operation completed")
+                    if response.json()["status_code"] == 200:
+                        st.success(message)
+                        fetch_users()
+                        time.sleep(2)
+                        st.session_state.session_state.show_edit_form = False
+                        st.session_state.session_state.edit_user = {}
+                        st.rerun()
+                    else:
+                        st.error(message)
+                        time.sleep(2)
+                        st.rerun()
+
+            if cancel_col.button("Cancel", key="cancel_user"):
+                st.session_state.session_state.show_edit_form = False
+                st.session_state.session_state.edit_user = {}
+                st.rerun()
+            
+
+
 def main():
     init_session_state()
     with st.sidebar:
@@ -284,7 +451,7 @@ def main():
             ## Add a logo
             st.image("src/assets/Logo.png", width=200)
             st.divider()
-            selected_page = option_menu("Main Menu", ["Profile", "Add User", "Upload Documents", "Uploaded Documents", "Chatbot", "Logout"], 
+            selected_page = option_menu("Main Menu", ["Profile", "Users", "Upload Documents", "Uploaded Documents", "Chatbot", "Logout"], 
                                     icons=["person-circle", "person-plus", "cloud-upload", "file-earmark-text", "chat-dots", "box-arrow-right"], 
                                     menu_icon="cast", default_index=4)
             
@@ -294,7 +461,7 @@ def main():
             st.divider()
             selected_page = option_menu("Main Menu", ["Profile", "Chatbot", "Logout"], 
                                     icons=["person-circle", "chat-dots", "box-arrow-right"], 
-                                    menu_icon="cast", default_index=0)
+                                    menu_icon="cast", default_index=1)
         else:
             ## Add a logo
             st.image("src/assets/Logo.png", width=300)
@@ -311,8 +478,8 @@ def main():
         signup_page()
     elif selected_page == "Profile":
         profile_page()
-    elif selected_page == "Add User":
-        signup_page()
+    elif selected_page == "Users":
+        manage_users()
     elif selected_page == "Upload Documents":
         upload_documents_page()
     elif selected_page == "Uploaded Documents":
