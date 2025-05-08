@@ -103,6 +103,7 @@ def profile_page():
                     st.success(data["message"])
                     time.sleep(2)
                     logout_page()
+                    
                 else:
                     st.error(data["message"])
 def upload_documents_page():
