@@ -1,4 +1,4 @@
-import requests, os, time, ast, base64, uuid
+import requests, os, time, ast, base64, uuid, json
 import streamlit as st
 import pandas as pd
 from streamlit_option_menu import option_menu
@@ -9,6 +9,7 @@ load_dotenv()
 root_dir = Path.cwd()
 
 API_BASE_URL = "https://z6zxn9xjbg.us-east-1.awsapprunner.com/api"
+# API_BASE_URL = "http://127.0.0.1:8080/api"
 USER_ID = uuid.uuid4()
 
 class SessionState:
@@ -96,7 +97,7 @@ def profile_page():
             st.error("New password cannot be the same as old password")
         else:
             with st.spinner("Changing Password..."):
-                response = requests.post(f"{API_BASE_URL}/change-password", json={"username": st.session_state.session_state.username, "old_password": old_password, "new_password": new_password})
+                response = requests.put(f"{API_BASE_URL}/change-password", json={"username": st.session_state.session_state.username, "old_password": old_password, "new_password": new_password})
                 data = response.json()
                 if data["status_code"] == 200:
                     st.success(data["message"])
@@ -185,7 +186,7 @@ def chatbot_page():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             if "sources" in message: 
-                st.markdown("## **Sources**")
+                st.markdown("**Sources**")
                 st.markdown(message["sources"], unsafe_allow_html=True)
     if prompt := st.chat_input("Ask me anything"):
         st.session_state.session_state.messages.append({"role": "user", "content": prompt})
@@ -214,51 +215,51 @@ def chatbot_page():
                 "content": content_response
             }
             ### Checking the action of the user query
-            response = requests.post(f"{API_BASE_URL}/logs/recent", json={"id": f"{st.session_state.session_state.user_id}"})
+            response = requests.post(f"{API_BASE_URL}/logs/recent", json={"id": f"{st.session_state.session_state.user_id}", "llm_answer":content_response, "question": prompt})
+            print(response, response.json())
             if response and response.status_code == 200:
-                action = response.json()["action"]
+                response_json = response.json()
+                show_sources = response_json["show_sources"]
+                source_url = response_json["source_url"]
+                file_name = response_json["file_name"]
+                file_type = response_json["file_type"]
                 # st.success(f"Action: {action}")
-                if action != "DEFAULT":
-                    response = requests.get(f"{API_BASE_URL}/get-state")
-                    if response and response.status_code == 200:
-                        matches = ast.literal_eval(response.json()["state"])
-                    else:
-                        matches = []
-                    
-                    if matches:
-                        top_match = matches[0]["metadata"]
-                        with st.spinner("Fetching Reference..."):
+                if show_sources:
+                    with st.spinner("Fetching Reference..."):
+                        if file_type == "pdf":
+                            response = requests.post(f"{API_BASE_URL}/get-pdf-page", json={"file_name": file_name, "llm_answer": content_response, "question": prompt})
+                            if response and response.status_code == 200:
+                                page_number = response.json()["page_number"]
+                            else:
+                                page_number = -1
 
-                            if top_match["file_type"] == "pdf":
-                                page_number = int(top_match["page_num"])
-                                file_name = top_match["file_name"]
-                                source_url = top_match["source_url"]
-                                st.markdown(f"## **Sources**")
+                            st.markdown(f"**Sources**")
 
-                                st.markdown("""
-                                <style>
-                                .abbreviated-link {
-                                    white-space: nowrap;
-                                    overflow: hidden;
-                                    text-overflow: ellipsis;
-                                    max-width: 300px;
-                                    display: inline-block;
-                                }
-                                </style>
-                                """, unsafe_allow_html=True)
+                            st.markdown("""
+                            <style>
+                            .abbreviated-link {
+                                white-space: nowrap;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                max-width: 300px;
+                                display: inline-block;
+                            }
+                            </style>
+                            """, unsafe_allow_html=True)
 
-                                url = f"{source_url}?#page={page_number}"
+                            url = f"{source_url}?#page={page_number}"
+                            
+                            sources = f"""<a href="{url}" class="abbreviated-link" title="{url}"> {file_name.split('/')[-1]}</a>"""
+                            st.markdown(sources, unsafe_allow_html=True)   
+                            session_container_messages["sources"] = sources
+
+                        elif file_type == "video":
+                            
+                            response = requests.post(f"{API_BASE_URL}/get-video-start-time", json={"file_name": file_name, "llm_answer": content_response, "question": prompt})
+                            if response and response.status_code == 200:
+                                start_time = response.json()["start_time"]
                                 
-                                sources = f'<a href="{url}" class="abbreviated-link" title="{url}"> Source Link</a>'
-                                st.markdown(sources, unsafe_allow_html=True)   
-                                session_container_messages["sources"] = sources
-
-                            elif top_match["file_type"] == "video":
-                                start_time = int(top_match["start_time"]) if top_match["start_time"] else 0
-                                end_time = int(top_match["end_time"]) if top_match["end_time"] else 0
-                                file_name = top_match["file_name"]
-                                source_url = top_match["source_url"]
-                                st.markdown(f"## **Sources**")
+                                st.markdown(f"**Sources**")
                                 st.markdown("""
                                 <style>
                                 .abbreviated-link {
@@ -272,7 +273,7 @@ def chatbot_page():
                                 """, unsafe_allow_html=True)
 
                                 url = f"{source_url}#t={start_time}"
-                                sources = f'<a href="{url}" class="abbreviated-link" title="{url}"> Source Link</a>'
+                                sources = f"""<a href="{url}" class="abbreviated-link" title="{url}"> {file_name.split('/')[-1]}</a>"""
                                 st.markdown(sources, unsafe_allow_html=True)
                                 session_container_messages["sources"] = sources
             else:
