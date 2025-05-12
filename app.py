@@ -103,7 +103,6 @@ def profile_page():
                     st.success(data["message"])
                     time.sleep(2)
                     logout_page()
-                    
                 else:
                     st.error(data["message"])
 def upload_documents_page():
@@ -331,10 +330,22 @@ def manage_users():
                             print(response.json())
                             message = response.json()["message"]
                             if response.json()["status_code"] == 200:
+                                payload = {
+                                    "email": email,
+                                    "username": username,
+                                    "password": password
+                                }
+                                response = requests.post(f"{API_BASE_URL}/welcome-email", json=payload)
+                                email_message = response.json().get("message", "Operation completed")
+                                if response.json()["status_code"] == 200:
+                                    st.success(email_message)
+                                else:
+                                    st.error(email_message)
                                 fetch_users()
                                 st.success(message)
                                 time.sleep(3)
                                 toggle_form()
+                                st.rerun()
                             else:
                                 st.error(message)
                         else:
