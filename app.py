@@ -341,6 +341,7 @@ def manage_users():
                                     st.success(email_message)
                                 else:
                                     st.error(email_message)
+                                    
                                 fetch_users()
                                 st.success(message)
                                 time.sleep(3)
